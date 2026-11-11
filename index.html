@@ -82,6 +82,13 @@ dialog::backdrop{background:#0006}
 #ebody{min-height:220px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
 #epreview{border:1px solid var(--line);border-radius:6px;padding:8px;min-height:220px}
 .note{font-size:12px;color:var(--sub)}
+/* プロパティのアコーディオン */
+details.props{margin:10px 0;border:1px solid var(--line);border-radius:8px}
+details.props>summary{cursor:pointer;padding:8px 12px;color:var(--sub);font-size:13px;user-select:none;list-style:none;display:flex;align-items:center;gap:6px}
+details.props>summary::-webkit-details-marker{display:none}
+details.props>summary::before{content:'▶';font-size:10px;transition:transform .15s}
+details.props[open]>summary::before{transform:rotate(90deg)}
+details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -119,7 +126,6 @@ dialog::backdrop{background:#0006}
   <div class="row"><label style="width:120px">Notionトークン</label>
     <input type="password" id="tokenIn" style="flex:1" placeholder="ntn_… / secret_…" autocomplete="off"></div>
   <p class="note">トークンはこのブラウザの localStorage にのみ保存されます。各データベースは、Notion側で「接続」からこのインテグレーションに共有してください。</p>
-  <!-- 変更(3): プロキシURL入力欄を追加 -->
   <div class="row"><label style="width:120px">プロキシURL</label>
     <input type="text" id="proxyIn" style="flex:1" placeholder="https://notion-keep-proxy.kok-252.workers.dev"></div>
   <p class="note">GitHub Pagesで使う場合は必須です(Cloudflare WorkerのURL)。ローカルのserver.jsで使う場合は空欄で構いません。</p>
@@ -176,15 +182,13 @@ function fmtDate(d) {
 const fmtCreated = (t) => new Date(t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 /* ---------- state ---------- */
-/* 変更(1): proxy を初期値に追加 */
-const cfg = Object.assign({ token: '', dbs: [], hidden: [], preview: true, proxy: '' }, JSON.parse(localStorage.getItem('nkeep.cfg') || '{}'));
+const cfg = Object.assign({ token: '', dbs: [], hidden: [], preview: true, proxy: '', propsOpen: false }, JSON.parse(localStorage.getItem('nkeep.cfg') || '{}'));
 const saveCfg = () => localStorage.setItem('nkeep.cfg', JSON.stringify(cfg));
 let range = 'today', sources = null, items = [], loadSeq = 0;
 const itemsById = new Map();
 const mdCache = new Map();
 
 /* ---------- API ---------- */
-/* 変更(2): プロキシURLを付けて呼び出す(空ならローカルの /notion) */
 const proxyBase = () => (cfg.proxy || '').replace(/\/+$/, '');
 async function api(path, { method = 'GET', body } = {}) {
   for (let i = 0; i < 5; i++) {
@@ -250,7 +254,6 @@ async function queryAll(src, start, end) {
 async function load(refreshSchema) {
   const seq = ++loadSeq, errors = [];
   $('#msg').textContent = '';
-  /* 変更(6): プロキシ未設定(ローカル以外)のときも案内を出す */
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
   if (!cfg.token || !cfg.dbs.length || (!cfg.proxy && !local)) {
     items = []; itemsById.clear(); renderAll();
@@ -467,6 +470,16 @@ async function openEditor(id) {
   const { src } = it, page = it.page, box = $('#editor');
   const fields = [src.titleProp, ...Object.keys(src.props).filter((k) => k !== src.titleProp)]
     .map((k) => (page.properties[k] ? fieldFor(k, src.props[k], page.properties[k]) : null)).filter(Boolean);
+
+  // タイトルは常に表示し、それ以外のプロパティはアコーディオンに格納
+  const titleF = fields.find((f) => f.name === src.titleProp);
+  const otherF = fields.filter((f) => f !== titleF);
+  const det = h('details', { class: 'props' },
+    h('summary', {}, `プロパティ(${otherF.length})`),
+    h('div', { class: 'pbody' }, ...otherF.map((f) => f.el)));
+  det.open = !!cfg.propsOpen;
+  det.addEventListener('toggle', () => { cfg.propsOpen = det.open; saveCfg(); });
+
   const ta = h('textarea', { id: 'ebody', rows: 12, disabled: true, placeholder: '読み込み中…' });
   const pv = h('div', { id: 'epreview', style: 'display:none' });
   let origMd = '', loaded = false, mdMeta = null;
@@ -488,7 +501,7 @@ async function openEditor(id) {
   box.replaceChildren(
     h('div', { class: 'row' }, h('span', { class: 'lg', style: `--c:${src.color}` }, h('i'), src.label), h('span', { class: 'sp' }),
       h('a', { href: page.url, target: '_blank', rel: 'noopener' }, 'Notionで開く ↗')),
-    ...fields.map((f) => f.el),
+    titleF ? titleF.el : '', det,
     h('div', { class: 'tabs' }, tabEdit, tabPrev),
     ta, pv,
     h('p', { class: 'note', id: 'enote' }),
@@ -522,7 +535,6 @@ function addRow(d = {}) {
   $('#dbRows').append(row);
 }
 function openSettings() {
-  /* 変更(4): プロキシURLを入力欄に反映 */
   $('#tokenIn').value = cfg.token; $('#proxyIn').value = cfg.proxy || '';
   $('#previewIn').checked = cfg.preview; $('#dbRows').replaceChildren();
   (cfg.dbs.length ? cfg.dbs : [{}]).forEach(addRow); $('#dlgSettings').showModal();
@@ -534,7 +546,6 @@ function saveSettings() {
     const id = extractId(raw); if (!id) return alert('IDを読み取れません: ' + raw);
     dbs.push({ raw, id, label: r.querySelector('.lb').value.trim(), color: r.querySelector('.c').value });
   }
-  /* 変更(5): プロキシURLの検証と保存 */
   const proxy = $('#proxyIn').value.trim().replace(/\/+$/, '');
   if (proxy && !/^https?:\/\//.test(proxy)) return alert('プロキシURLは https:// から始めてください');
   cfg.token = $('#tokenIn').value.trim(); cfg.proxy = proxy; cfg.dbs = dbs; cfg.preview = $('#previewIn').checked; saveCfg();
