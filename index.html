@@ -107,6 +107,7 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
 .tdi .due.over{color:#d93025;font-weight:600}
 .tdi.done .tdt{text-decoration:line-through;color:var(--sub)}
 .tdempty{color:var(--sub);font-size:13px;padding:6px 0}
+.arch{display:inline-flex;gap:4px;align-items:center;font-size:13px;color:var(--sub);white-space:nowrap;cursor:pointer}
 .card.todo .ct{padding-right:34px}
 .todo-add{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:0;padding:0;font-size:20px;line-height:28px;background:rgba(0,0,0,.1)}
 .todo-add:hover{background:rgba(0,0,0,.2)}
@@ -129,6 +130,8 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
   </div>
   <input type="search" id="q" placeholder="検索(表示中のメモ内)">
   <select id="sort"><option value="desc">新しい順</option><option value="asc">古い順</option></select>
+  <label class="arch"><input type="checkbox" id="showArch"> ✔も表示</label>
+
   <span id="status"></span>
   <span class="sp"></span>
   <button class="ib" id="reload" title="再読み込み(スキーマも更新)">⟳</button>
@@ -471,6 +474,11 @@ function propChips(p, name) {
   }
 }
 const titleOf = (it) => rt((it.page.properties[it.src.titleProp] || {}).title);
+const isArchived = (page) => Object.values(page.properties).some((p) => {
+  const v = p.type === 'multi_select' ? p.multi_select : p.type === 'select' && p.select ? [p.select] : [];
+  return v.some((o) => o.name.replace(/\uFE0F/g, '') === '✔');
+});
+
 function paintBody(el, m) { if (!m.md.trim()) { el.remove(); return; } el.innerHTML = renderMd(m.md); }
 const io = new IntersectionObserver((es) => {
   for (const en of es) if (en.isIntersecting) { io.unobserve(en.target); fillBody(en.target); }
@@ -578,6 +586,7 @@ function renderAll() {
     onclick: () => { const i = cfg.hidden.indexOf(s.dsId); i < 0 ? cfg.hidden.push(s.dsId) : cfg.hidden.splice(i, 1); saveCfg(); renderAll(); } }, h('i'), s.label)));
   const q = $('#q').value.trim().toLowerCase(), dir = $('#sort').value === 'asc' ? 1 : -1;
   const list = items.filter((it) => !cfg.hidden.includes(it.src.dsId))
+    .filter((it) => cfg.showArchived || !isArchived(it.page))
     .filter((it) => !q || (titleOf(it) + ' ' + Object.values(it.page.properties).flatMap((p) => propChips(p, '')).map((c) => c.t).join(' ') + ' ' + ((mdCache.get(it.page.id) || {}).md || '')).toLowerCase().includes(q))
     .sort((a, b) => dir * (Date.parse(a.page.created_time) - Date.parse(b.page.created_time)));
   // Todo用カード: 「今日」表示のとき、Todo設定のDBごとに常に1枚(凡例で非表示にしたDBは除く)
@@ -760,6 +769,8 @@ $('#grid').addEventListener('click', (e) => {
   if (e.target.closest('a,button,label,input')) return;
   const c = e.target.closest('.card'); if (c && !c.classList.contains('todo')) openEditor(c.dataset.id);
 });
+$('#showArch').checked = !!cfg.showArchived;
+$('#showArch').addEventListener('change', (e) => { cfg.showArchived = e.target.checked; saveCfg(); renderAll(); });
 load(true);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
   
