@@ -89,6 +89,22 @@ details.props>summary::-webkit-details-marker{display:none}
 details.props>summary::before{content:'▶';font-size:10px;transition:transform .15s}
 details.props[open]>summary::before{transform:rotate(90deg)}
 details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
+/* 変更: Todo用カード */
+.card.todo{cursor:default;background:color-mix(in srgb,var(--c) 40%,var(--surface))}
+.tdl{margin-top:6px}
+.tdi{display:flex;gap:8px;align-items:flex-start;padding:3px 0}
+.tdi input{margin-top:4px;flex:none}
+.tdt{flex:1;cursor:pointer;word-break:break-word}
+.tdt:hover{text-decoration:underline}
+.tdi .due{flex:none;font-size:11px;color:var(--sub);white-space:nowrap;margin-top:2px}
+.tdi .due.over{color:#d93025;font-weight:600}
+.tdi.done .tdt{text-decoration:line-through;color:var(--sub)}
+.tdempty{color:var(--sub);font-size:13px;padding:6px 0}
+/* 変更: 設定画面のTodoオプション */
+.dbitem{border-bottom:1px dashed var(--line);padding-bottom:4px;margin-bottom:4px}
+.tdlab{display:flex;gap:4px;align-items:center;white-space:nowrap;font-size:12px}
+.todoopt{margin:0 0 6px 44px}
+.todoopt .row input{flex:1}
 </style>
 </head>
 <body>
@@ -130,7 +146,7 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
     <input type="text" id="proxyIn" style="flex:1" placeholder="https://notion-keep-proxy.kok-252.workers.dev"></div>
   <p class="note">GitHub Pagesで使う場合は必須です(Cloudflare WorkerのURL)。ローカルのserver.jsで使う場合は空欄で構いません。</p>
   <h2 style="margin-top:14px">データベース</h2>
-  <p class="note">データベースID または Notion の URL を貼れます(データソースIDも可)。色は表示色です。</p>
+  <p class="note">データベースID または Notion の URL を貼れます(データソースIDも可)。色は表示色です。「Todo」にチェックしたデータベースは、ノートを1件ずつ出さず、期限が今日以前の未完了タスクをまとめたTodo用カードを1枚表示します(「今日」表示のときのみ)。</p>
   <div id="dbRows"></div>
   <div class="row"><button class="btn" id="addRow">＋ データベースを追加</button></div>
   <div class="row"><label><input type="checkbox" id="previewIn"> カードに本文プレビューを表示する(オフで高速化)</label></div>
@@ -180,11 +196,22 @@ function fmtDate(d) {
   return f(d.start) + (d.end ? ' → ' + f(d.end) : '');
 }
 const fmtCreated = (t) => new Date(t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+/* 日付(ローカル日付ベース) */
+const ymd = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+const todayStr = () => ymd(new Date());
+const dayShift = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return ymd(d); };
+const dayDiff = (s) => { // 今日 - s (日数)
+  const [y, m, d] = s.split('-').map(Number), t = new Date();
+  return Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()) - new Date(y, m - 1, d)) / 86400000);
+};
 
 /* ---------- state ---------- */
 const cfg = Object.assign({ token: '', dbs: [], hidden: [], preview: true, proxy: '', propsOpen: false }, JSON.parse(localStorage.getItem('nkeep.cfg') || '{}'));
 const saveCfg = () => localStorage.setItem('nkeep.cfg', JSON.stringify(cfg));
 let range = 'today', sources = null, items = [], loadSeq = 0;
+let todoItems = [];                 // Todo用カードのタスク
+const justDone = new Set();         // 今回チェックして完了にしたタスク(再読み込みまで一覧に残す)
+const undoMap = new Map();          // チェックを外したときに戻す値
 const itemsById = new Map();
 const mdCache = new Map();
 
@@ -208,6 +235,34 @@ const queue = []; let running = 0;
 function enqueue(fn) { return new Promise((res, rej) => { queue.push({ fn, res, rej }); pump(); }); }
 function pump() { while (running < 2 && queue.length) { const j = queue.shift(); running++; j.fn().then(j.res, j.rej).finally(() => { running--; pump(); }); } }
 
+/* ---------- Todo設定の解決(プロパティ名・完了オプション) ---------- */
+function setupTodo(P, c) {
+  const names = Object.keys(P), t = { err: '' };
+  const find = (want, type, re, ex) => (want
+    ? (P[want] && P[want].type === type ? want : null)
+    : (names.find((n) => P[n].type === type && n !== ex && re.test(n)) || null));
+  t.due = find(c.due, 'date', /期限|期日|締切|締め切り|due|deadline/i);
+  t.status = find(c.status, 'status', /ステータス|状態|status/i) || (c.status ? null : (names.find((n) => P[n].type === 'status') || null));
+  t.done = find(c.done, 'date', /完了|done|complete/i, t.due);
+  t.doneNames = new Set(); t.doneOpt = null; t.fallbackOpt = null;
+  const miss = [];
+  if (!t.due) miss.push(`期限(日付型${c.due ? '「' + c.due + '」' : ''})`);
+  if (!t.status) miss.push(`ステータス(ステータス型${c.status ? '「' + c.status + '」' : ''})`);
+  if (c.done && !t.done) miss.push(`完了日(日付型「${c.done}」)`);
+  if (t.status) {
+    const st = P[t.status].status || {}, opts = st.options || [], groups = st.groups || [];
+    const g = groups.find((x) => /^(complete|completed|done|完了)/i.test(x.name)) || groups[groups.length - 1];
+    const ids = new Set(g ? g.option_ids : []);
+    const dopts = opts.filter((o) => ids.has(o.id));
+    t.doneNames = new Set(dopts.map((o) => o.name));
+    t.doneOpt = (dopts.find((o) => /完了|done|complete/i.test(o.name)) || dopts[0] || {}).name || null;
+    t.fallbackOpt = st.default_option || (opts.find((o) => !t.doneNames.has(o.name)) || {}).name || null;
+    if (!t.doneOpt) miss.push('完了グループのオプション');
+  }
+  if (miss.length) t.err = 'Todo設定: 次のプロパティが見つかりません → ' + miss.join('、') + '。設定画面でプロパティ名を指定してください。';
+  return t;
+}
+
 /* ---------- sources (database -> data sources) ---------- */
 async function resolveSources(errors) {
   const out = [];
@@ -228,6 +283,7 @@ async function resolveSources(errors) {
         const titleProp = Object.keys(ds.properties).find((k) => ds.properties[k].type === 'title');
         const nm = rt(ds.title) || x.name || '無題DB';
         out.push({ dsId: ds.id, color: d.color, props: ds.properties, titleProp,
+          todo: d.todo ? setupTodo(ds.properties, d.todoProps || {}) : null,
           label: d.label ? (list.length > 1 ? `${d.label} / ${nm}` : d.label) : nm });
       }
     } catch (e) {
@@ -250,13 +306,28 @@ async function queryAll(src, start, end) {
   } while (cursor);
   return all;
 }
+/* Todo: 期限が今日以前(明日以前で広めに取得し、画面側で厳密に絞る)かつ完了グループ以外 */
+async function queryTodo(src) {
+  const t = src.todo; let cursor, all = [];
+  const and = [{ property: t.due, date: { on_or_before: dayShift(1) } }];
+  if (t.doneNames.size) and.push({ property: t.status, status: { does_not_equal: [...t.doneNames] } });
+  do {
+    const body = { page_size: 100, sorts: [{ property: t.due, direction: 'ascending' }], filter: { and } };
+    if (cursor) body.start_cursor = cursor;
+    const r = await api(`/data_sources/${src.dsId}/query`, { method: 'POST', body });
+    all.push(...r.results.filter((x) => x.object === 'page'));
+    cursor = r.has_more ? r.next_cursor : null;
+  } while (cursor);
+  return all;
+}
 
 async function load(refreshSchema) {
   const seq = ++loadSeq, errors = [];
   $('#msg').textContent = '';
+  justDone.clear();
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
   if (!cfg.token || !cfg.dbs.length || (!cfg.proxy && !local)) {
-    items = []; itemsById.clear(); renderAll();
+    items = []; todoItems = []; itemsById.clear(); renderAll();
     $('#msg').textContent = '右上の「設定」からトークン・プロキシURL・データベースを登録してください。';
     return;
   }
@@ -264,10 +335,17 @@ async function load(refreshSchema) {
   try {
     if (refreshSchema || !sources) sources = await resolveSources(errors);
     const { start, end } = bounds(range);
-    const results = await Promise.all(sources.map((s) =>
-      queryAll(s, start, end).then((ps) => ps.map((page) => ({ page, src: s }))).catch((e) => { errors.push(`${s.label}: ${e.message}`); return []; })));
+    const [results, todoRes] = await Promise.all([
+      Promise.all(sources.map((s) => (s.todo ? Promise.resolve([]) :
+        queryAll(s, start, end).then((ps) => ps.map((page) => ({ page, src: s }))).catch((e) => { errors.push(`${s.label}: ${e.message}`); return []; })))),
+      range === 'today'
+        ? Promise.all(sources.filter((s) => s.todo && !s.todo.err).map((s) =>
+            queryTodo(s).then((ps) => ps.map((page) => ({ page, src: s }))).catch((e) => { errors.push(`${s.label}(Todo): ${e.message}`); return []; })))
+        : Promise.resolve([]),
+    ]);
     if (seq !== loadSeq) return;
-    items = results.flat(); itemsById.clear(); items.forEach((it) => itemsById.set(it.page.id, it));
+    items = results.flat(); todoItems = todoRes.flat();
+    itemsById.clear(); items.forEach((it) => itemsById.set(it.page.id, it)); todoItems.forEach((it) => itemsById.set(it.page.id, it));
   } catch (e) { errors.push(e.message); }
   $('#errors').textContent = errors.join('\n');
   renderAll();
@@ -404,6 +482,62 @@ function cardEl(it) {
   if (body) { const c = mdCache.get(page.id); if (c && c.edited === page.last_edited_time) paintBody(body, c); else io.observe(body); }
   return el;
 }
+
+/* ---------- Todo用カード ---------- */
+const todoStatusName = (it) => { const s = it.page.properties[it.src.todo.status]; return s && s.status ? s.status.name : null; };
+const todoDueDate = (it) => { const p = it.page.properties[it.src.todo.due]; return p && p.date ? p.date.start.slice(0, 10) : null; };
+const todoIsDone = (it) => it.src.todo.doneNames.has(todoStatusName(it));
+function todoVisible(it) {
+  const d = todoDueDate(it);
+  if (!d || d > todayStr()) return false;                       // 期限が今日以前のみ
+  return !todoIsDone(it) || justDone.has(it.page.id);           // 未完了(今チェックしたものは残す)
+}
+function todoCardEl(src, q) {
+  const t = src.todo, head = h('div', { class: 'ct' }, '✅ ', src.label);
+  if (t.err) return h('div', { class: 'card todo', style: `--c:${src.color}` }, head, h('div', { class: 'tdempty' }, t.err));
+  const list = todoItems.filter((it) => it.src.dsId === src.dsId && todoVisible(it))
+    .filter((it) => !q || titleOf(it).toLowerCase().includes(q))
+    .sort((a, b) => todoDueDate(a).localeCompare(todoDueDate(b)));
+  const rows = list.map((it) => {
+    const ds = todoDueDate(it), n = dayDiff(ds), done = todoIsDone(it);
+    return h('div', { class: 'tdi' + (done ? ' done' : '') },
+      h('input', { type: 'checkbox', 'data-tp': it.page.id, checked: done }),
+      h('span', { class: 'tdt', 'data-id': it.page.id }, titleOf(it) || '無題'),
+      h('span', { class: 'due' + (n > 0 ? ' over' : ''), title: ds }, n <= 0 ? '今日' : n === 1 ? '昨日' : `${n}日前`));
+  });
+  return h('div', { class: 'card todo', style: `--c:${src.color}` }, head,
+    rows.length ? h('div', { class: 'tdl' }, rows) : h('div', { class: 'tdempty' }, '期限が今日以前の未完了タスクはありません 🎉'),
+    h('div', { class: 'foot' }, h('span', { class: 'dot' }), h('span', {}, 'Todo'), h('span', { class: 't' }, `${list.filter((it) => !todoIsDone(it)).length}件`)));
+}
+async function onTodoToggle(cb) {
+  const id = cb.dataset.tp, it = itemsById.get(id); if (!it) return;
+  const t = it.src.todo, checked = cb.checked, row = cb.closest('.tdi'); cb.disabled = true;
+  try {
+    let props;
+    if (checked) {
+      const pd = t.done ? it.page.properties[t.done] : null;
+      undoMap.set(id, { status: todoStatusName(it), done: pd && pd.date ? pd.date : null });
+      props = { [t.status]: { status: { name: t.doneOpt } } };
+      if (t.done) props[t.done] = { date: { start: todayStr() } };       // 完了日 = 今日
+      justDone.add(id);
+    } else {
+      const u = undoMap.get(id) || {};
+      const back = u.status && !t.doneNames.has(u.status) ? u.status : t.fallbackOpt;
+      if (!back) throw new Error('元のステータスが特定できません');
+      props = { [t.status]: { status: { name: back } } };
+      if (t.done) { const o = u.done ? { start: u.done.start } : null;
+        if (o && u.done.end) o.end = u.done.end; if (o && u.done.time_zone) o.time_zone = u.done.time_zone;
+        props[t.done] = { date: o }; }
+      justDone.delete(id);
+    }
+    const pg = await api('/pages/' + id, { method: 'PATCH', body: { properties: props } });
+    it.page = pg; row.classList.toggle('done', checked);
+  } catch (e) {
+    if (checked) justDone.delete(id); else justDone.add(id);
+    cb.checked = !checked; alert('更新に失敗しました: ' + e.message);
+  } finally { cb.disabled = false; }
+}
+
 function renderAll() {
   const legend = $('#legend'); legend.replaceChildren();
   (sources || []).forEach((s) => legend.append(h('button', { class: 'lg' + (cfg.hidden.includes(s.dsId) ? ' off' : ''), style: `--c:${s.color}`,
@@ -412,14 +546,18 @@ function renderAll() {
   const list = items.filter((it) => !cfg.hidden.includes(it.src.dsId))
     .filter((it) => !q || (titleOf(it) + ' ' + Object.values(it.page.properties).flatMap((p) => propChips(p, '')).map((c) => c.t).join(' ') + ' ' + ((mdCache.get(it.page.id) || {}).md || '')).toLowerCase().includes(q))
     .sort((a, b) => dir * (Date.parse(a.page.created_time) - Date.parse(b.page.created_time)));
-  $('#grid').replaceChildren(...list.map(cardEl));
+  // Todo用カード: 「今日」表示のとき、Todo設定のDBごとに常に1枚(凡例で非表示にしたDBは除く)
+  const todoCards = range === 'today' && sources
+    ? sources.filter((s) => s.todo && !cfg.hidden.includes(s.dsId)).map((s) => todoCardEl(s, q)) : [];
+  $('#grid').replaceChildren(...todoCards, ...list.map(cardEl));
   $('#status').textContent = items.length || sources ? `${list.length}件` : '';
-  if (cfg.token && cfg.dbs.length) $('#msg').textContent = list.length ? '' : 'この期間のメモはありません。';
+  if (cfg.token && cfg.dbs.length) $('#msg').textContent = list.length || todoCards.length ? '' : 'この期間のメモはありません。';
   const sel = $('#qSel'); sel.replaceChildren(...(sources || []).map((s) => h('option', { value: s.dsId }, s.label)));
 }
 async function trashPage(it) {
   if (!confirm(`「${titleOf(it) || '無題'}」をNotionのゴミ箱に移動しますか?`)) return;
-  try { await api('/pages/' + it.page.id, { method: 'PATCH', body: { in_trash: true } }); items = items.filter((x) => x !== it); itemsById.delete(it.page.id); renderAll(); }
+  try { await api('/pages/' + it.page.id, { method: 'PATCH', body: { in_trash: true } });
+    items = items.filter((x) => x !== it); todoItems = todoItems.filter((x) => x !== it); itemsById.delete(it.page.id); renderAll(); }
   catch (e) { alert('削除に失敗: ' + e.message); }
 }
 
@@ -527,12 +665,24 @@ async function createNote() {
 
 /* ---------- settings ---------- */
 function addRow(d = {}) {
-  const idx = $('#dbRows').children.length;
-  const row = h('div', { class: 'row dbrow' }, h('input', { type: 'color', class: 'c', value: d.color || PALETTE[idx % PALETTE.length] }),
-    h('input', { type: 'text', class: 'id', placeholder: 'データベースID / URL', value: d.raw || '' }),
-    h('input', { type: 'text', class: 'lb', placeholder: '表示名(任意)', value: d.label || '' }),
-    h('button', { type: 'button', class: 'btn', onclick: () => row.remove() }, '✕'));
-  $('#dbRows').append(row);
+  const idx = $('#dbRows').children.length, tp = d.todoProps || {};
+  const ck = h('input', { type: 'checkbox', class: 'tdck', checked: !!d.todo });
+  const opt = h('div', { class: 'todoopt', style: d.todo ? '' : 'display:none' },
+    h('div', { class: 'note' }, 'Todo設定のプロパティ名(空欄なら 期限=日付型・ステータス=ステータス型・完了日=日付型 から自動判定)'),
+    h('div', { class: 'row' },
+      h('input', { type: 'text', class: 'tp-due', placeholder: '期限(例: 期限)', value: tp.due || '' }),
+      h('input', { type: 'text', class: 'tp-status', placeholder: 'ステータス(例: ステータス)', value: tp.status || '' }),
+      h('input', { type: 'text', class: 'tp-done', placeholder: '完了日(例: 完了日)', value: tp.done || '' })));
+  ck.addEventListener('change', () => { opt.style.display = ck.checked ? '' : 'none'; });
+  const wrap = h('div', { class: 'dbitem' },
+    h('div', { class: 'row dbrow' },
+      h('input', { type: 'color', class: 'c', value: d.color || PALETTE[idx % PALETTE.length] }),
+      h('input', { type: 'text', class: 'id', placeholder: 'データベースID / URL', value: d.raw || '' }),
+      h('input', { type: 'text', class: 'lb', placeholder: '表示名(任意)', value: d.label || '' }),
+      h('label', { class: 'tdlab', title: 'チェックすると、このDBはTodo用カードで表示します' }, ck, 'Todo'),
+      h('button', { type: 'button', class: 'btn', onclick: () => wrap.remove() }, '✕')),
+    opt);
+  $('#dbRows').append(wrap);
 }
 function openSettings() {
   $('#tokenIn').value = cfg.token; $('#proxyIn').value = cfg.proxy || '';
@@ -544,7 +694,9 @@ function saveSettings() {
   for (const r of $('#dbRows').children) {
     const raw = r.querySelector('.id').value.trim(); if (!raw) continue;
     const id = extractId(raw); if (!id) return alert('IDを読み取れません: ' + raw);
-    dbs.push({ raw, id, label: r.querySelector('.lb').value.trim(), color: r.querySelector('.c').value });
+    dbs.push({ raw, id, label: r.querySelector('.lb').value.trim(), color: r.querySelector('.c').value,
+      todo: r.querySelector('.tdck').checked,
+      todoProps: { due: r.querySelector('.tp-due').value.trim(), status: r.querySelector('.tp-status').value.trim(), done: r.querySelector('.tp-done').value.trim() } });
   }
   const proxy = $('#proxyIn').value.trim().replace(/\/+$/, '');
   if (proxy && !/^https?:\/\//.test(proxy)) return alert('プロキシURLは https:// から始めてください');
@@ -563,14 +715,16 @@ $('#setCancel').addEventListener('click', () => $('#dlgSettings').close());
 $('#quick .collapsed').addEventListener('click', () => { if (!(sources || []).length) return alert('先に設定でデータベースを登録してください'); $('#quick').classList.add('open'); $('#qTitle').focus(); });
 $('#qCancel').addEventListener('click', () => $('#quick').classList.remove('open')); $('#qAdd').addEventListener('click', createNote);
 $('#grid').addEventListener('change', async (e) => {
+  const tp = e.target.closest('input[data-tp]'); if (tp) return onTodoToggle(tp);   // Todo用カードのチェック
   const cb = e.target.closest('input[data-todo]'); if (!cb) return;
   const it = itemsById.get(cb.closest('.body').dataset.id); cb.disabled = true;
   try { await toggleTodo(it, +cb.dataset.todo, cb.checked); cb.nextElementSibling.classList.toggle('done', cb.checked); }
   catch (err) { cb.checked = !cb.checked; alert('更新に失敗しました: ' + err.message); } finally { cb.disabled = false; }
 });
 $('#grid').addEventListener('click', (e) => {
+  const tt = e.target.closest('.tdt'); if (tt) return openEditor(tt.dataset.id);   // Todoのタスク名 → 編集画面
   if (e.target.closest('a,button,label,input')) return;
-  const c = e.target.closest('.card'); if (c) openEditor(c.dataset.id);
+  const c = e.target.closest('.card'); if (c && !c.classList.contains('todo')) openEditor(c.dataset.id);
 });
 load(true);
 </script>
