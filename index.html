@@ -100,6 +100,11 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
 .tdi .due.over{color:#d93025;font-weight:600}
 .tdi.done .tdt{text-decoration:line-through;color:var(--sub)}
 .tdempty{color:var(--sub);font-size:13px;padding:6px 0}
+.card.todo .ct{padding-right:34px}
+.todo-add{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:0;padding:0;font-size:20px;line-height:28px;background:rgba(0,0,0,.1)}
+.todo-add:hover{background:rgba(0,0,0,.2)}
+.todo-add:disabled{opacity:.5;cursor:default}
+
 /* 変更: 設定画面のTodoオプション */
 .dbitem{border-bottom:1px dashed var(--line);padding-bottom:4px;margin-bottom:4px}
 .tdlab{display:flex;gap:4px;align-items:center;white-space:nowrap;font-size:12px}
@@ -495,6 +500,9 @@ function todoVisible(it) {
 function todoCardEl(src, q) {
   const t = src.todo, head = h('div', { class: 'ct' }, '✅ ', src.label);
   if (t.err) return h('div', { class: 'card todo', style: `--c:${src.color}` }, head, h('div', { class: 'tdempty' }, t.err));
+  head.append(h('button', { class: 'todo-add', title: 'Todoを追加（期限：今日・未着手）',
+  onclick: async (ev) => { ev.stopPropagation(); const b = ev.currentTarget; b.disabled = true;
+      try { await addTodoTask(src); } catch (e) { alert('追加に失敗しました: ' + e.message); } finally { b.disabled = false; } } }, '+'));
   const list = todoItems.filter((it) => it.src.dsId === src.dsId && todoVisible(it))
     .filter((it) => !q || titleOf(it).toLowerCase().includes(q))
     .sort((a, b) => todoDueDate(a).localeCompare(todoDueDate(b)));
@@ -509,6 +517,25 @@ function todoCardEl(src, q) {
     rows.length ? h('div', { class: 'tdl' }, rows) : h('div', { class: 'tdempty' }, '期限が今日以前の未完了タスクはありません 🎉'),
     h('div', { class: 'foot' }, h('span', { class: 'dot' }), h('span', {}, 'Todo'), h('span', { class: 't' }, `${list.filter((it) => !todoIsDone(it)).length}件`)));
 }
+
+async function addTodoTask(src) {
+  const t = src.todo;
+  const title = prompt('追加するTodo（期限：今日、ステータス：未着手）');
+  if (!title || !title.trim()) return;
+  const opts = ((src.props[t.status].status || {}).options || []).filter((o) => !t.doneNames.has(o.name));
+  const opt = opts.find((o) => /^(未着手|not started)$/i.test(o.name));
+  const stName = opt ? opt.name : t.fallbackOpt;
+  const props = {
+    [src.titleProp]: { title: chunks(title.trim()) },
+    [t.due]: { date: { start: todayStr() } },
+  };
+  if (stName) props[t.status] = { status: { name: stName } };
+  await api('/pages', { method: 'POST', body: {
+    parent: { type: 'data_source_id', data_source_id: src.dsId },
+    properties: props } });
+  await load();
+}
+  
 async function onTodoToggle(cb) {
   const id = cb.dataset.tp, it = itemsById.get(id); if (!it) return;
   const t = it.src.todo, checked = cb.checked, row = cb.closest('.tdi'); cb.disabled = true;
