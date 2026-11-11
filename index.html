@@ -760,6 +760,8 @@ $('#grid').addEventListener('click', (e) => {
   const c = e.target.closest('.card'); if (c && !c.classList.contains('todo')) openEditor(c.dataset.id);
 });
 load(true);
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+  
 </script>
 </body>
 </html>
