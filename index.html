@@ -10,7 +10,6 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Notion Keep">
-
 <style>
 :root{--bg:#f6f7f9;--surface:#fff;--text:#202124;--sub:#5f6368;--line:#dadce0;--accent:#1a73e8}
 @media(prefers-color-scheme:dark){:root{--bg:#202124;--surface:#2d2e31;--text:#e8eaed;--sub:#9aa0a6;--line:#5f6368;--accent:#8ab4f8}}
@@ -96,7 +95,7 @@ details.props>summary::-webkit-details-marker{display:none}
 details.props>summary::before{content:'▶';font-size:10px;transition:transform .15s}
 details.props[open]>summary::before{transform:rotate(90deg)}
 details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
-/* 変更: Todo用カード */
+/* Todo用カード */
 .card.todo{cursor:default;background:color-mix(in srgb,var(--c) 40%,var(--surface))}
 .tdl{margin-top:6px}
 .tdi{display:flex;gap:8px;align-items:flex-start;padding:3px 0}
@@ -107,34 +106,39 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
 .tdi .due.over{color:#d93025;font-weight:600}
 .tdi.done .tdt{text-decoration:line-through;color:var(--sub)}
 .tdempty{color:var(--sub);font-size:13px;padding:6px 0}
-.arch{display:inline-flex;gap:4px;align-items:center;font-size:13px;color:var(--sub);white-space:nowrap;cursor:pointer}
+/* Todo追加ボタン */
 .card.todo .ct{padding-right:34px}
 .todo-add{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;border:0;padding:0;font-size:20px;line-height:28px;background:rgba(0,0,0,.1)}
 .todo-add:hover{background:rgba(0,0,0,.2)}
 .todo-add:disabled{opacity:.5;cursor:default}
-
-/* 変更: 設定画面のTodoオプション */
+/* 設定画面のTodo欄 */
 .dbitem{border-bottom:1px dashed var(--line);padding-bottom:4px;margin-bottom:4px}
 .tdlab{display:flex;gap:4px;align-items:center;white-space:nowrap;font-size:12px}
 .todoopt{margin:0 0 6px 44px}
 .todoopt .row input{flex:1}
+/* ✔も表示 */
+.arch{display:inline-flex;gap:4px;align-items:center;font-size:13px;color:var(--sub);white-space:nowrap;cursor:pointer}
+/* カード上のボタン */
+.cbtn{border:0;background:transparent;color:var(--sub);border-radius:6px;padding:5px 8px;line-height:1;display:inline-flex;align-items:center;font-size:15px}
+.cbtn:hover{background:#0001;color:var(--text)}
+.cbtn.on{background:var(--accent);color:#fff}
+.cbtn:disabled{opacity:.5}
 </style>
 </head>
 <body>
 <header>
-  <h1>🗒 Notion Keep</h1>
+  <h1>📝 Notion Keep</h1>
   <div class="seg" id="range">
     <button data-r="today" class="on">今日</button>
     <button data-r="week">今週</button>
     <button data-r="month">今月</button>
   </div>
-  <input type="search" id="q" placeholder="検索(表示中のメモ内)">
+  <input type="search" id="q" placeholder="検索(タイトル・本文・タグ)">
   <select id="sort"><option value="desc">新しい順</option><option value="asc">古い順</option></select>
   <label class="arch"><input type="checkbox" id="showArch"> ✔も表示</label>
-
   <span id="status"></span>
   <span class="sp"></span>
-  <button class="ib" id="reload" title="再読み込み(スキーマも更新)">⟳</button>
+  <button class="ib" id="reload" title="再読み込み(データベース構成も更新)">⟳</button>
   <button class="ib" id="openSettings">⚙ 設定</button>
 </header>
 <div id="legend"></div>
@@ -144,8 +148,8 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
     <div class="collapsed">メモを入力…</div>
     <div class="full">
       <input id="qTitle" placeholder="タイトル">
-      <textarea id="qBody" rows="3" placeholder="本文(Markdown 可。- [ ] でチェックリスト)"></textarea>
-      <div class="ctl"><select id="qSel"></select><button class="btn" id="qCancel">閉じる</button><button class="btn p" id="qAdd">追加</button></div>
+      <textarea id="qBody" rows="3" placeholder="本文(Markdown - [ ] でチェックリスト)"></textarea>
+      <div class="ctl"><select id="qSel"></select><button class="btn" id="qCancel">キャンセル</button><button class="btn p" id="qAdd">追加</button></div>
     </div>
   </div>
   <div id="grid"></div>
@@ -156,15 +160,15 @@ details.props .pbody{padding:2px 12px 10px;border-top:1px solid var(--line)}
   <h2>設定</h2>
   <div class="row"><label style="width:120px">Notionトークン</label>
     <input type="password" id="tokenIn" style="flex:1" placeholder="ntn_… / secret_…" autocomplete="off"></div>
-  <p class="note">トークンはこのブラウザの localStorage にのみ保存されます。各データベースは、Notion側で「接続」からこのインテグレーションに共有してください。</p>
+  <p class="note">トークンはこのブラウザの localStorage に保存され、プロキシ経由で Notion にのみ送られます。</p>
   <div class="row"><label style="width:120px">プロキシURL</label>
     <input type="text" id="proxyIn" style="flex:1" placeholder="https://notion-keep-proxy.kok-252.workers.dev"></div>
-  <p class="note">GitHub Pagesで使う場合は必須です(Cloudflare WorkerのURL)。ローカルのserver.jsで使う場合は空欄で構いません。</p>
+  <p class="note">GitHub Pages で使う場合は必須(Cloudflare Worker のURL)。ローカルの server.js で使う場合は空欄で構いません。</p>
   <h2 style="margin-top:14px">データベース</h2>
-  <p class="note">データベースID または Notion の URL を貼れます(データソースIDも可)。色は表示色です。「Todo」にチェックしたデータベースは、ノートを1件ずつ出さず、期限が今日以前の未完了タスクをまとめたTodo用カードを1枚表示します(「今日」表示のときのみ)。</p>
+  <p class="note">ID は Notion のデータベースの URL(またはID)を貼り付けてください。「Todo」にチェックしたデータベースは、ノートを1枚ずつ出さず、Todo用カード1枚で表示します(Todo用カードの表示名は、空欄ならデータベース名)。</p>
   <div id="dbRows"></div>
   <div class="row"><button class="btn" id="addRow">＋ データベースを追加</button></div>
-  <div class="row"><label><input type="checkbox" id="previewIn"> カードに本文プレビューを表示する(オフで高速化)</label></div>
+  <div class="row"><label><input type="checkbox" id="previewIn"> カードに本文を表示する(重い場合はオフ)</label></div>
   <div class="btns"><button class="btn" id="setCancel">キャンセル</button><button class="btn p" id="setSave">保存</button></div>
 </div></dialog>
 
@@ -211,7 +215,7 @@ function fmtDate(d) {
   return f(d.start) + (d.end ? ' → ' + f(d.end) : '');
 }
 const fmtCreated = (t) => new Date(t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-/* 日付(ローカル日付ベース) */
+/* 日付(ローカル) */
 const ymd = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 const todayStr = () => ymd(new Date());
 const dayShift = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return ymd(d); };
@@ -221,12 +225,12 @@ const dayDiff = (s) => { // 今日 - s (日数)
 };
 
 /* ---------- state ---------- */
-const cfg = Object.assign({ token: '', dbs: [], hidden: [], preview: true, proxy: '', propsOpen: false }, JSON.parse(localStorage.getItem('nkeep.cfg') || '{}'));
+const cfg = Object.assign({ token: '', dbs: [], hidden: [], preview: true, proxy: '', propsOpen: false, showArchived: false }, JSON.parse(localStorage.getItem('nkeep.cfg') || '{}'));
 const saveCfg = () => localStorage.setItem('nkeep.cfg', JSON.stringify(cfg));
 let range = 'today', sources = null, items = [], loadSeq = 0;
 let todoItems = [];                 // Todo用カードのタスク
-const justDone = new Set();         // 今回チェックして完了にしたタスク(再読み込みまで一覧に残す)
-const undoMap = new Map();          // チェックを外したときに戻す値
+const justDone = new Set();         // 完了にした直後のタスク(一覧に残す)
+const undoMap = new Map();          // 元に戻すための退避
 const itemsById = new Map();
 const mdCache = new Map();
 
@@ -244,26 +248,26 @@ async function api(path, { method = 'GET', body } = {}) {
     if (!r.ok) { const e = new Error(j.message || r.statusText); e.status = r.status; e.code = j.code; throw e; }
     return j;
   }
-  throw new Error('レート制限により取得できませんでした');
+  throw new Error('リトライ上限に達しました');
 }
 const queue = []; let running = 0;
 function enqueue(fn) { return new Promise((res, rej) => { queue.push({ fn, res, rej }); pump(); }); }
 function pump() { while (running < 2 && queue.length) { const j = queue.shift(); running++; j.fn().then(j.res, j.rej).finally(() => { running--; pump(); }); } }
 
-/* ---------- Todo設定の解決(プロパティ名・完了オプション) ---------- */
+/* ---------- Todo設定(プロパティの自動判定) ---------- */
 function setupTodo(P, c) {
   const names = Object.keys(P), t = { err: '' };
   const find = (want, type, re, ex) => (want
     ? (P[want] && P[want].type === type ? want : null)
     : (names.find((n) => P[n].type === type && n !== ex && re.test(n)) || null));
   t.due = find(c.due, 'date', /期限|期日|締切|締め切り|due|deadline/i);
-  t.status = find(c.status, 'status', /ステータス|状態|status/i) || (c.status ? null : (names.find((n) => P[n].type === 'status') || null));
+  t.status = find(c.status, 'status', /ステータス|status/i) || (c.status ? null : (names.find((n) => P[n].type === 'status') || null));
   t.done = find(c.done, 'date', /完了|done|complete/i, t.due);
   t.doneNames = new Set(); t.doneOpt = null; t.fallbackOpt = null;
   const miss = [];
-  if (!t.due) miss.push(`期限(日付型${c.due ? '「' + c.due + '」' : ''})`);
-  if (!t.status) miss.push(`ステータス(ステータス型${c.status ? '「' + c.status + '」' : ''})`);
-  if (c.done && !t.done) miss.push(`完了日(日付型「${c.done}」)`);
+  if (!t.due) miss.push(`期限(${c.due ? '「' + c.due + '」という日付プロパティ' : '日付型プロパティ'})`);
+  if (!t.status) miss.push(`ステータス(${c.status ? '「' + c.status + '」というステータスプロパティ' : 'ステータス型プロパティ'})`);
+  if (c.done && !t.done) miss.push(`完了日(「${c.done}」という日付プロパティ)`);
   if (t.status) {
     const st = P[t.status].status || {}, opts = st.options || [], groups = st.groups || [];
     const g = groups.find((x) => /^(complete|completed|done|完了)/i.test(x.name)) || groups[groups.length - 1];
@@ -272,9 +276,9 @@ function setupTodo(P, c) {
     t.doneNames = new Set(dopts.map((o) => o.name));
     t.doneOpt = (dopts.find((o) => /完了|done|complete/i.test(o.name)) || dopts[0] || {}).name || null;
     t.fallbackOpt = st.default_option || (opts.find((o) => !t.doneNames.has(o.name)) || {}).name || null;
-    if (!t.doneOpt) miss.push('完了グループのオプション');
+    if (!t.doneOpt) miss.push('完了のステータス選択肢');
   }
-  if (miss.length) t.err = 'Todo設定: 次のプロパティが見つかりません → ' + miss.join('、') + '。設定画面でプロパティ名を指定してください。';
+  if (miss.length) t.err = 'Todo設定エラー: ' + miss.join('、') + ' が見つかりません。設定でプロパティ名を指定してください。';
   return t;
 }
 
@@ -287,7 +291,7 @@ async function resolveSources(errors) {
       try {
         const db = await api('/databases/' + d.id);
         list = (db.data_sources || []).map((x) => ({ id: x.id, name: x.name }));
-        if (!list.length) throw Object.assign(new Error('data source なし'), { status: 404 });
+        if (!list.length) throw Object.assign(new Error('data source が見つかりません'), { status: 404 });
       } catch (e) {
         if (e.status !== 400 && e.status !== 404) throw e;
         const ds = await api('/data_sources/' + d.id).catch(() => { throw e; });
@@ -296,13 +300,13 @@ async function resolveSources(errors) {
       for (const x of list) {
         const ds = await api('/data_sources/' + x.id);
         const titleProp = Object.keys(ds.properties).find((k) => ds.properties[k].type === 'title');
-        const nm = rt(ds.title) || x.name || '無題DB';
+        const nm = rt(ds.title) || x.name || 'DB';
         out.push({ dsId: ds.id, color: d.color, props: ds.properties, titleProp,
           todo: d.todo ? setupTodo(ds.properties, d.todoProps || {}) : null,
           label: d.label ? (list.length > 1 ? `${d.label} / ${nm}` : d.label) : nm });
       }
     } catch (e) {
-      errors.push(`${d.label || d.raw}: ${e.message}(インテグレーションの接続設定とIDを確認してください)`);
+      errors.push(`${d.label || d.raw}: ${e.message}(IDとインテグレーションの接続を確認してください)`);
     }
   }
   return out;
@@ -321,7 +325,7 @@ async function queryAll(src, start, end) {
   } while (cursor);
   return all;
 }
-/* Todo: 期限が今日以前(明日以前で広めに取得し、画面側で厳密に絞る)かつ完了グループ以外 */
+/* Todo: 未完了かつ期限が今日以前(広めに取得して画面側で絞る) */
 async function queryTodo(src) {
   const t = src.todo; let cursor, all = [];
   const and = [{ property: t.due, date: { on_or_before: dayShift(1) } }];
@@ -386,7 +390,7 @@ function renderMd(md) {
     if (!raw.trim()) continue;
     const ind = raw.match(/^[\t ]*/)[0].replace(/ {2}/g, '\t').length * 14;
     const l = raw.trim(); let m;
-    if (/^<unknown/i.test(l)) { out.push('<div class="unk">⚠ 未対応ブロック</div>'); continue; }
+    if (/^<unknown/i.test(l)) { out.push('<div class="unk">(未対応のブロック)</div>'); continue; }
     if (/^<\/?[a-z][\w-]*(\s[^>]*)?\/?>$/i.test(l)) continue;
     if ((m = l.match(/^[-*] \[([ xX])\] ?(.*)$/))) { const d = m[1] !== ' ';
       out.push(`<label class="todo" style="margin-left:${ind}px"><input type="checkbox" data-todo="${todo++}" ${d ? 'checked' : ''}><span class="${d ? 'done' : ''}">${inline(m[2])}</span></label>`); continue; }
@@ -438,7 +442,7 @@ async function saveBody(page, oldMd, newMd) {
         body: { type: 'update_content', update_content: { content_updates: [u] }, markdown_version: 'v2' } });
     } catch (e) {
       if (e.status !== 400 || (cached && cached.truncated) || /<unknown/.test(oldMd)) throw e;
-      if (!confirm('差分更新に失敗しました(' + e.message + ')。ページ本文全体を置き換えますか?\n※ブロックIDが再作成されます。')) throw e;
+      if (!confirm('差分での更新に失敗しました(' + e.message + ')。\nページ本文を全体置換しますか?\n(未対応ブロックなどが失われる可能性があります)')) throw e;
       res = await replace();
     }
   }
@@ -474,10 +478,64 @@ function propChips(p, name) {
   }
 }
 const titleOf = (it) => rt((it.page.properties[it.src.titleProp] || {}).title);
+
+/* ---- ✔(確認済み)の判定 ---- */
 const isArchived = (page) => Object.values(page.properties).some((p) => {
   const v = p.type === 'multi_select' ? p.multi_select : p.type === 'select' && p.select ? [p.select] : [];
   return v.some((o) => o.name.replace(/\uFE0F/g, '') === '✔');
 });
+
+/* ---- ✔の付け外し・共有 ---- */
+const isChk = (o) => o.name.replace(/\uFE0F/g, '') === '✔';
+const SHARE_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="2.6" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="2.6" fill="currentColor" stroke="none"/><circle cx="18" cy="19" r="2.6" fill="currentColor" stroke="none"/><path d="M8.2 10.8L15.8 6.2M8.2 13.2L15.8 17.8"/></svg>';
+
+function chkPropName(src) {
+  const ents = Object.entries(src.props);
+  const hit = (type) => (ents.find(([, s]) => s.type === type && s[type].options.some(isChk)) || [])[0];
+  return hit('multi_select') || hit('select') || null;
+}
+
+async function toggleArchive(it) {
+  const { page, src } = it, props = {};
+  if (isArchived(page)) {
+    for (const [name, p] of Object.entries(page.properties)) {
+      if (p.type === 'multi_select' && p.multi_select.some(isChk)) props[name] = { multi_select: p.multi_select.filter((o) => !isChk(o)).map((o) => ({ name: o.name })) };
+      else if (p.type === 'select' && p.select && isChk(p.select)) props[name] = { select: null };
+    }
+  } else {
+    const name = chkPropName(src);
+    if (!name) throw new Error('このデータベースに「✔」のタグ(選択肢)がありません。Notionで先に作成してください');
+    const sch = src.props[name], opt = sch[sch.type].options.find(isChk), p = page.properties[name];
+    props[name] = sch.type === 'multi_select'
+      ? { multi_select: [...p.multi_select.map((o) => ({ name: o.name })), { name: opt.name }] }
+      : { select: { name: opt.name } };
+  }
+  const c = mdCache.get(page.id);
+  const pg = await api('/pages/' + page.id, { method: 'PATCH', body: { properties: props } });
+  it.page = pg; if (c) c.edited = pg.last_edited_time;
+  renderAll();
+}
+
+async function shareNote(it) {
+  const title = titleOf(it) || '無題';
+  const c = mdCache.get(it.page.id);
+  const md = c && c.edited === it.page.last_edited_time ? c.md : (await getMd(it.page)).md;
+  const body = md.split('\n').filter((l) => !/^\s*<unknown\b/i.test(l)).join('\n').trim();
+  const text = body ? title + '\n\n' + body : title;
+  if (navigator.share) {
+    try { await navigator.share({ text }); } catch (e) { if (e.name !== 'AbortError') throw e; }
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+  alert('共有機能が使えない環境のため、クリップボードにコピーしました');
+}
+
+function actionBtn(cls, title, html, fn) {
+  const b = h('button', { type: 'button', class: 'cbtn ' + cls, title, 'aria-label': title,
+    onclick: async (ev) => { ev.stopPropagation(); b.disabled = true;
+      try { await fn(); } catch (e) { alert('失敗しました: ' + e.message); } finally { b.disabled = false; } } });
+  b.innerHTML = html; return b;
+}
 
 function paintBody(el, m) { if (!m.md.trim()) { el.remove(); return; } el.innerHTML = renderMd(m.md); }
 const io = new IntersectionObserver((es) => {
@@ -486,7 +544,7 @@ const io = new IntersectionObserver((es) => {
 async function fillBody(el) {
   const it = itemsById.get(el.dataset.id); if (!it) return;
   try { paintBody(el, await getMd(it.page)); }
-  catch (e) { el.classList.add('err'); el.textContent = '本文を取得できません: ' + e.message; }
+  catch (e) { el.classList.add('err'); el.textContent = '本文の取得に失敗: ' + e.message; }
 }
 function cardEl(it) {
   const { page, src } = it;
@@ -499,6 +557,9 @@ function cardEl(it) {
     chips.length ? h('div', { class: 'chips' }, chips.map((c) => h('span', { class: 'chip', title: c.name, style: c.c ? `background:${TAG[c.c] || TAG.default}` : '' }, c.t))) : null,
     h('div', { class: 'foot' }, h('span', { class: 'dot' }), h('span', {}, src.label), h('span', { class: 't' }, fmtCreated(page.created_time)),
       h('button', { class: 'del', title: 'ゴミ箱へ', onclick: (ev) => { ev.stopPropagation(); trashPage(it); } }, '🗑')));
+  const foot = el.querySelector('.foot'), delBtn = foot.querySelector('.del'), arch = isArchived(page);
+  foot.insertBefore(actionBtn('', '共有', SHARE_SVG, () => shareNote(it)), delBtn);
+  foot.insertBefore(actionBtn(arch ? 'on' : '', arch ? '✔を外す' : '✔を付ける(確認済みにする)', '✔', () => toggleArchive(it)), delBtn);
   if (body) { const c = mdCache.get(page.id); if (c && c.edited === page.last_edited_time) paintBody(body, c); else io.observe(body); }
   return el;
 }
@@ -510,13 +571,30 @@ const todoIsDone = (it) => it.src.todo.doneNames.has(todoStatusName(it));
 function todoVisible(it) {
   const d = todoDueDate(it);
   if (!d || d > todayStr()) return false;                       // 期限が今日以前のみ
-  return !todoIsDone(it) || justDone.has(it.page.id);           // 未完了(今チェックしたものは残す)
+  return !todoIsDone(it) || justDone.has(it.page.id);           // 未完了(完了にした直後は残す)
+}
+async function addTodoTask(src) {
+  const t = src.todo;
+  const title = prompt('追加するTodo(期限:今日、ステータス:未着手)');
+  if (!title || !title.trim()) return;
+  const opts = ((src.props[t.status].status || {}).options || []).filter((o) => !t.doneNames.has(o.name));
+  const opt = opts.find((o) => /^(未着手|not started)$/i.test(o.name));
+  const stName = opt ? opt.name : t.fallbackOpt;
+  const props = {
+    [src.titleProp]: { title: chunks(title.trim()) },
+    [t.due]: { date: { start: todayStr() } },
+  };
+  if (stName) props[t.status] = { status: { name: stName } };
+  await api('/pages', { method: 'POST', body: {
+    parent: { type: 'data_source_id', data_source_id: src.dsId },
+    properties: props } });
+  await load();
 }
 function todoCardEl(src, q) {
   const t = src.todo, head = h('div', { class: 'ct' }, '✅ ', src.label);
   if (t.err) return h('div', { class: 'card todo', style: `--c:${src.color}` }, head, h('div', { class: 'tdempty' }, t.err));
-  head.append(h('button', { class: 'todo-add', title: 'Todoを追加（期限：今日・未着手）',
-  onclick: async (ev) => { ev.stopPropagation(); const b = ev.currentTarget; b.disabled = true;
+  head.append(h('button', { class: 'todo-add', title: 'Todoを追加(期限:今日・未着手)',
+    onclick: async (ev) => { ev.stopPropagation(); const b = ev.currentTarget; b.disabled = true;
       try { await addTodoTask(src); } catch (e) { alert('追加に失敗しました: ' + e.message); } finally { b.disabled = false; } } }, '+'));
   const list = todoItems.filter((it) => it.src.dsId === src.dsId && todoVisible(it))
     .filter((it) => !q || titleOf(it).toLowerCase().includes(q))
@@ -532,25 +610,6 @@ function todoCardEl(src, q) {
     rows.length ? h('div', { class: 'tdl' }, rows) : h('div', { class: 'tdempty' }, '期限が今日以前の未完了タスクはありません 🎉'),
     h('div', { class: 'foot' }, h('span', { class: 'dot' }), h('span', {}, 'Todo'), h('span', { class: 't' }, `${list.filter((it) => !todoIsDone(it)).length}件`)));
 }
-
-async function addTodoTask(src) {
-  const t = src.todo;
-  const title = prompt('追加するTodo（期限：今日、ステータス：未着手）');
-  if (!title || !title.trim()) return;
-  const opts = ((src.props[t.status].status || {}).options || []).filter((o) => !t.doneNames.has(o.name));
-  const opt = opts.find((o) => /^(未着手|not started)$/i.test(o.name));
-  const stName = opt ? opt.name : t.fallbackOpt;
-  const props = {
-    [src.titleProp]: { title: chunks(title.trim()) },
-    [t.due]: { date: { start: todayStr() } },
-  };
-  if (stName) props[t.status] = { status: { name: stName } };
-  await api('/pages', { method: 'POST', body: {
-    parent: { type: 'data_source_id', data_source_id: src.dsId },
-    properties: props } });
-  await load();
-}
-  
 async function onTodoToggle(cb) {
   const id = cb.dataset.tp, it = itemsById.get(id); if (!it) return;
   const t = it.src.todo, checked = cb.checked, row = cb.closest('.tdi'); cb.disabled = true;
@@ -565,7 +624,7 @@ async function onTodoToggle(cb) {
     } else {
       const u = undoMap.get(id) || {};
       const back = u.status && !t.doneNames.has(u.status) ? u.status : t.fallbackOpt;
-      if (!back) throw new Error('元のステータスが特定できません');
+      if (!back) throw new Error('戻す先のステータスが見つかりません');
       props = { [t.status]: { status: { name: back } } };
       if (t.done) { const o = u.done ? { start: u.done.start } : null;
         if (o && u.done.end) o.end = u.done.end; if (o && u.done.time_zone) o.time_zone = u.done.time_zone;
@@ -589,19 +648,19 @@ function renderAll() {
     .filter((it) => cfg.showArchived || !isArchived(it.page))
     .filter((it) => !q || (titleOf(it) + ' ' + Object.values(it.page.properties).flatMap((p) => propChips(p, '')).map((c) => c.t).join(' ') + ' ' + ((mdCache.get(it.page.id) || {}).md || '')).toLowerCase().includes(q))
     .sort((a, b) => dir * (Date.parse(a.page.created_time) - Date.parse(b.page.created_time)));
-  // Todo用カード: 「今日」表示のとき、Todo設定のDBごとに常に1枚(凡例で非表示にしたDBは除く)
+  // Todo用カード: 「今日」のときだけ、Todo指定のDBごとに1枚(0件でも常に表示)
   const todoCards = range === 'today' && sources
     ? sources.filter((s) => s.todo && !cfg.hidden.includes(s.dsId)).map((s) => todoCardEl(s, q)) : [];
   $('#grid').replaceChildren(...todoCards, ...list.map(cardEl));
   $('#status').textContent = items.length || sources ? `${list.length}件` : '';
-  if (cfg.token && cfg.dbs.length) $('#msg').textContent = list.length || todoCards.length ? '' : 'この期間のメモはありません。';
+  if (cfg.token && cfg.dbs.length) $('#msg').textContent = list.length || todoCards.length ? '' : '表示するノートがありません';
   const sel = $('#qSel'); sel.replaceChildren(...(sources || []).map((s) => h('option', { value: s.dsId }, s.label)));
 }
 async function trashPage(it) {
-  if (!confirm(`「${titleOf(it) || '無題'}」をNotionのゴミ箱に移動しますか?`)) return;
+  if (!confirm(`「${titleOf(it) || '無題'}」をゴミ箱に移動しますか?(Notionのゴミ箱に入ります)`)) return;
   try { await api('/pages/' + it.page.id, { method: 'PATCH', body: { in_trash: true } });
     items = items.filter((x) => x !== it); todoItems = todoItems.filter((x) => x !== it); itemsById.delete(it.page.id); renderAll(); }
-  catch (e) { alert('削除に失敗: ' + e.message); }
+  catch (e) { alert('削除に失敗しました: ' + e.message); }
 }
 
 /* ---------- editor ---------- */
@@ -616,7 +675,7 @@ function fieldFor(name, sch, p) {
   } else if (t === 'checkbox') {
     ctl = h('input', { type: 'checkbox', checked: p.checkbox }); read = () => (ctl.checked !== p.checkbox ? { checkbox: ctl.checked } : undefined);
   } else if (t === 'select' || t === 'status') {
-    const orig = (p[t] && p[t].name) || ''; ctl = h('select', { class: 'in' }, (t === 'select' || !orig) ? h('option', { value: '' }, '—') : null,
+    const orig = (p[t] && p[t].name) || ''; ctl = h('select', { class: 'in' }, (t === 'select' || !orig) ? h('option', { value: '' }, '(なし)') : null,
       sch[t].options.map((o) => h('option', { value: o.name }, o.name))); ctl.value = orig;
     read = () => (ctl.value !== orig ? { [t]: ctl.value ? { name: ctl.value } : null } : undefined);
   } else if (t === 'multi_select') {
@@ -628,7 +687,7 @@ function fieldFor(name, sch, p) {
     const d = p.date, sp = (s) => (s ? [s.slice(0, 10), s.length > 10 ? s.slice(11, 16) : ''] : ['', '']);
     const [sd0, st0] = sp(d && d.start), [ed0, et0] = sp(d && d.end);
     const sd = h('input', { type: 'date', value: sd0 }), st = h('input', { type: 'time', value: st0 }), ed = h('input', { type: 'date', value: ed0 }), et = h('input', { type: 'time', value: et0 });
-    ctl = h('div', { class: 'daterow' }, sd, st, '→', ed, et);
+    ctl = h('div', { class: 'daterow' }, sd, st, '〜', ed, et);
     const ser = (dv, tv) => (dv ? dv + (tv ? `T${tv}:00${d && d.time_zone ? '' : tzOff()}` : '') : null);
     read = () => {
       if (sd.value === sd0 && st.value === st0 && ed.value === ed0 && et.value === et0) return undefined;
@@ -652,7 +711,7 @@ async function openEditor(id) {
   const fields = [src.titleProp, ...Object.keys(src.props).filter((k) => k !== src.titleProp)]
     .map((k) => (page.properties[k] ? fieldFor(k, src.props[k], page.properties[k]) : null)).filter(Boolean);
 
-  // タイトルは常に表示し、それ以外のプロパティはアコーディオンに格納
+  // タイトル以外のプロパティはアコーディオンに格納
   const titleF = fields.find((f) => f.name === src.titleProp);
   const otherF = fields.filter((f) => f !== titleF);
   const det = h('details', { class: 'props' },
@@ -686,24 +745,24 @@ async function openEditor(id) {
     h('div', { class: 'tabs' }, tabEdit, tabPrev),
     ta, pv,
     h('p', { class: 'note', id: 'enote' }),
-    h('div', { class: 'btns' }, h('button', { class: 'btn d', onclick: () => { $('#dlgEditor').close(); trashPage(it); } }, 'ゴミ箱へ'), h('span', { class: 'sp' }),
-      h('button', { class: 'btn', onclick: () => $('#dlgEditor').close() }, '閉じる'), saveBtn));
+    h('div', { class: 'btns' }, h('button', { class: 'btn d', onclick: () => { $('#dlgEditor').close(); trashPage(it); } }, '削除'), h('span', { class: 'sp' }),
+      h('button', { class: 'btn', onclick: () => $('#dlgEditor').close() }, 'キャンセル'), saveBtn));
   $('#dlgEditor').showModal();
   try {
-    mdMeta = await getMd(page); origMd = mdMeta.md; ta.value = origMd; ta.disabled = false; ta.placeholder = '本文(Notion形式のMarkdown)'; loaded = true;
-    $('#enote').textContent = mdMeta.truncated ? '⚠ ページが大きいため一部のみ取得しています。' : (/<unknown/.test(origMd) ? '⚠ 未対応ブロック(<unknown …>)は編集せずそのままにしてください。' : '');
-  } catch (e) { ta.placeholder = '本文を取得できません: ' + e.message; }
+    mdMeta = await getMd(page); origMd = mdMeta.md; ta.value = origMd; ta.disabled = false; ta.placeholder = '(Notionの本文をMarkdownで編集)'; loaded = true;
+    $('#enote').textContent = mdMeta.truncated ? '本文が長すぎるため一部のみ取得しています。保存すると欠ける可能性があります。' : (/<unknown/.test(origMd) ? '未対応ブロックを含みます(<unknown …> の行は編集しないでください)' : '');
+  } catch (e) { ta.placeholder = '本文の取得に失敗: ' + e.message; }
 }
 
 /* ---------- quick add ---------- */
 async function createNote() {
-  const src = (sources || []).find((s) => s.dsId === $('#qSel').value); if (!src) return alert('データベースが選択できません');
+  const src = (sources || []).find((s) => s.dsId === $('#qSel').value); if (!src) return alert('データベースを選択してください');
   const title = $('#qTitle').value.trim(), body = $('#qBody').value.trim(); if (!title && !body) return;
   const payload = { parent: { type: 'data_source_id', data_source_id: src.dsId }, properties: { [src.titleProp]: { title: chunks(title) } } };
   if (body) { payload.markdown = body; payload.markdown_version = 'v2'; }
   $('#qAdd').disabled = true;
   try { await api('/pages', { method: 'POST', body: payload }); $('#qTitle').value = ''; $('#qBody').value = ''; $('#quick').classList.remove('open'); await load(); }
-  catch (e) { alert('作成に失敗しました: ' + e.message); } finally { $('#qAdd').disabled = false; }
+  catch (e) { alert('追加に失敗しました: ' + e.message); } finally { $('#qAdd').disabled = false; }
 }
 
 /* ---------- settings ---------- */
@@ -711,7 +770,7 @@ function addRow(d = {}) {
   const idx = $('#dbRows').children.length, tp = d.todoProps || {};
   const ck = h('input', { type: 'checkbox', class: 'tdck', checked: !!d.todo });
   const opt = h('div', { class: 'todoopt', style: d.todo ? '' : 'display:none' },
-    h('div', { class: 'note' }, 'Todo設定のプロパティ名(空欄なら 期限=日付型・ステータス=ステータス型・完了日=日付型 から自動判定)'),
+    h('div', { class: 'note' }, 'Todo用のプロパティ名(空欄 = 自動判定。入力する場合は完全一致)'),
     h('div', { class: 'row' },
       h('input', { type: 'text', class: 'tp-due', placeholder: '期限(例: 期限)', value: tp.due || '' }),
       h('input', { type: 'text', class: 'tp-status', placeholder: 'ステータス(例: ステータス)', value: tp.status || '' }),
@@ -722,8 +781,8 @@ function addRow(d = {}) {
       h('input', { type: 'color', class: 'c', value: d.color || PALETTE[idx % PALETTE.length] }),
       h('input', { type: 'text', class: 'id', placeholder: 'データベースID / URL', value: d.raw || '' }),
       h('input', { type: 'text', class: 'lb', placeholder: '表示名(任意)', value: d.label || '' }),
-      h('label', { class: 'tdlab', title: 'チェックすると、このDBはTodo用カードで表示します' }, ck, 'Todo'),
-      h('button', { type: 'button', class: 'btn', onclick: () => wrap.remove() }, '✕')),
+      h('label', { class: 'tdlab', title: 'このDBをTodo用カードで表示する' }, ck, 'Todo'),
+      h('button', { type: 'button', class: 'btn', onclick: () => wrap.remove() }, '削除')),
     opt);
   $('#dbRows').append(wrap);
 }
@@ -736,7 +795,7 @@ function saveSettings() {
   const dbs = [];
   for (const r of $('#dbRows').children) {
     const raw = r.querySelector('.id').value.trim(); if (!raw) continue;
-    const id = extractId(raw); if (!id) return alert('IDを読み取れません: ' + raw);
+    const id = extractId(raw); if (!id) return alert('IDを認識できません: ' + raw);
     dbs.push({ raw, id, label: r.querySelector('.lb').value.trim(), color: r.querySelector('.c').value,
       todo: r.querySelector('.tdck').checked,
       todoProps: { due: r.querySelector('.tp-due').value.trim(), status: r.querySelector('.tp-status').value.trim(), done: r.querySelector('.tp-done').value.trim() } });
@@ -765,7 +824,7 @@ $('#grid').addEventListener('change', async (e) => {
   catch (err) { cb.checked = !cb.checked; alert('更新に失敗しました: ' + err.message); } finally { cb.disabled = false; }
 });
 $('#grid').addEventListener('click', (e) => {
-  const tt = e.target.closest('.tdt'); if (tt) return openEditor(tt.dataset.id);   // Todoのタスク名 → 編集画面
+  const tt = e.target.closest('.tdt'); if (tt) return openEditor(tt.dataset.id);   // Todoのタイトルから編集画面
   if (e.target.closest('a,button,label,input')) return;
   const c = e.target.closest('.card'); if (c && !c.classList.contains('todo')) openEditor(c.dataset.id);
 });
@@ -773,7 +832,6 @@ $('#showArch').checked = !!cfg.showArchived;
 $('#showArch').addEventListener('change', (e) => { cfg.showArchived = e.target.checked; saveCfg(); renderAll(); });
 load(true);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
-  
 </script>
 </body>
 </html>
